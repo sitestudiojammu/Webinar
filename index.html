@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>WebinarCast — Live Webinar Platform</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0e17;--s:#121824;--s2:#1a2334;--s3:#232f47;--bd:#26314a;--tx:#e8ecf4;--mu:#8892a8;--ac:#4f7cff;--dg:#ef4444;--ok:#22c55e;--live:#ff3366;--r:14px}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);-webkit-font-smoothing:antialiased;background-image:radial-gradient(ellipse 900px 500px at 50% -10%,rgba(79,124,255,.15),transparent 60%)}
+.screen{display:none;flex-direction:column;gap:14px;padding:20px;min-height:100vh;max-width:1440px;margin:0 auto}
+.screen.active{display:flex}
+#home{align-items:center;justify-content:center;text-align:center}
+#home h1{font-size:clamp(32px,6vw,56px);letter-spacing:-1.5px;font-weight:800}
+#home h1 span{color:var(--ac)}
+.tag{color:var(--mu);max-width:540px;line-height:1.65;margin-top:12px}
+.homeBtns{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:32px}
+.homeBtns button{padding:14px 24px;font-size:15px}
+.homeNote{margin-top:36px;font-size:12.5px;opacity:.6;max-width:580px;line-height:1.7}
+button{font:inherit;font-weight:600;cursor:pointer;border:0;border-radius:10px;padding:11px 18px;background:var(--ac);color:#fff;transition:.15s;white-space:nowrap}
+button:hover:not(:disabled){filter:brightness(1.12)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.ghost{background:var(--s2);color:var(--tx);border:1px solid var(--bd)}
+button.danger{background:var(--dg)}button.ok{background:var(--ok)}button.sm{padding:8px 14px;font-size:13px}
+input[type=text],input:not([type]),input[type=tel]{font:inherit;padding:12px 14px;border-radius:10px;border:1px solid var(--bd);background:var(--s);color:var(--tx);width:100%;outline:none}
+input:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(79,124,255,.18)}
+button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--s);border:1px solid var(--bd);border-radius:var(--r);padding:12px 18px;flex-wrap:wrap}
+.hg{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mu)}
+.hg b{color:var(--tx)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mu)}
+.dot.live{background:var(--live);box-shadow:0 0 12px var(--live);animation:p 1.6s infinite}
+@keyframes p{50%{opacity:.5}}
+.code{font-family:ui-monospace,Menlo,monospace;color:var(--ac);font-weight:700;letter-spacing:1.5px}
+.badge{font-size:13px;background:var(--s2);border:1px solid var(--bd);padding:5px 12px;border-radius:99px;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 360px;gap:14px;flex:1;min-height:0}
+@media(max-width:960px){.grid{grid-template-columns:1fr}}
+.vw{position:relative;background:#000;border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;aspect-ratio:16/9}
+.vw video{width:100%;height:100%;object-fit:contain;display:block}
+.ph{position:absolute;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;text-align:center;color:var(--mu);padding:28px;line-height:1.65;background:radial-gradient(circle,rgba(26,35,52,.5),#000)}
+.ph.hide{display:none}.ph b{color:var(--tx)}.ph .big{font-size:44px;line-height:1}
+.spin{width:36px;height:36px;border-radius:50%;border:3px solid var(--bd);border-top-color:var(--ac);animation:sp .9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.panel{background:var(--s);border:1px solid var(--bd);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;min-height:300px}
+.panel h3{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--mu);padding:14px 18px;border-bottom:1px solid var(--bd)}
+.chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:160px;max-height:520px}
+.msg{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:9px 12px;font-size:14px;line-height:1.5;word-wrap:break-word}
+.msg.mine{background:rgba(79,124,255,.12);border-color:rgba(79,124,255,.3)}
+.msg.ann{background:rgba(255,200,60,.1);border-color:rgba(255,200,60,.35)}
+.who{display:flex;gap:8px;font-size:12.5px;color:var(--ac);font-weight:700;margin-bottom:4px}
+.who small{color:var(--mu);font-weight:400;font-size:11px}
+.meta{font-size:11px;color:var(--mu);margin-top:4px}
+.sys{font-size:12px;color:var(--mu);text-align:center;font-style:italic}
+.empty{color:var(--mu);font-size:13.5px;text-align:center;margin:auto;padding:24px;line-height:1.7}
+.comp{display:flex;gap:8px;padding:12px;border-top:1px solid var(--bd)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.lr{display:flex;gap:8px;background:var(--s);border:1px solid var(--bd);border-radius:var(--r);padding:10px}
+.lr input{border:0;background:transparent;font-family:ui-monospace,monospace;font-size:13px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12.5px;background:var(--s2);border:1px solid var(--bd);border-radius:99px;padding:5px 12px}
+.chip.mu{color:var(--mu);font-style:italic}
+.chk{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--mu);cursor:pointer}
+.center{display:flex;align-items:center;justify-content:center;flex:1}
+.card{background:var(--s);border:1px solid var(--bd);border-radius:18px;padding:32px;width:100%;max-width:440px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.card h2{font-size:22px;margin-bottom:8px}
+.sub{color:var(--mu);font-size:14px;margin-bottom:22px;line-height:1.6}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12.5px;color:var(--mu);margin-bottom:7px;font-weight:600}
+.err{color:var(--dg);font-size:13px;min-height:18px;margin-bottom:6px}
+@media(max-width:600px){.screen{padding:12px}.card{padding:24px}.chat{max-height:300px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="screen active" id="home">
+  <h1>Webinar<span>Cast</span></h1>
+  <p class="tag">Broadcast your screen and voice to a live audience. Attendees register with their name and mobile number, watch live, and message you privately.</p>
+  <div class="homeBtns">
+    <button onclick="startHost()">🎥 Start a webinar (Host)</button>
+    <button class="ghost" onclick="goToJoin()">👥 Join a webinar</button>
+  </div>
+  <p class="homeNote">Runs peer-to-peer over WebRTC. Best for small to medium audiences (up to about 15–25 attendees, since your device sends the stream to each one). Host this file on any HTTPS site so the link works on every device.</p>
+</div>
+
+<div class="screen" id="joinScreen">
+  <div class="center"><div class="card">
+    <h2>Join webinar</h2>
+    <p class="sub">Register to be admitted. You can join before the host starts and you'll be connected automatically.</p>
+    <div class="field"><label for="jName">Full name *</label><input id="jName" placeholder="e.g. Priya Sharma" autocomplete="name" maxlength="60"></div>
+    <div class="field"><label for="jMobile">Mobile number *</label><input id="jMobile" type="tel" placeholder="e.g. 9876543210" autocomplete="tel" maxlength="16"></div>
+    <div class="field"><label for="jCode">Meeting code *</label><input id="jCode" placeholder="e.g. a1b2c3d4" maxlength="12" onkeydown="if(event.key==='Enter')submitJoin()"></div>
+    <div class="err" id="joinErr"></div>
+    <button style="width:100%" onclick="submitJoin()">Join webinar</button>
+    <button class="ghost" style="width:100%;margin-top:10px" onclick="show('home')">Back</button>
+  </div></div>
+</div>
+
+<div class="screen" id="hostScreen">
+  <header>
+    <div class="hg"><span class="dot" id="statusDot"></span><b>Host</b><span>Meeting</span><span class="code" id="hostId">—</span></div>
+    <div class="badge" id="count">0 attendees</div>
+  </header>
+  <div class="grid">
+    <div class="vw">
+      <video id="hostPreview" autoplay muted playsinline></video>
+      <div class="ph" id="hostPh"><div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> to go live.</div></div>
+    </div>
+    <aside class="panel">
+      <h3>Messages from attendees</h3>
+      <div class="chat" id="hostChat"><div class="empty" id="hostEmpty">Attendee messages appear here.<br>Only you can see them.</div></div>
+      <div class="comp">
+        <input id="annMsg" placeholder="Announce to everyone…" maxlength="300" onkeydown="if(event.key==='Enter')announce()">
+        <button class="ghost" onclick="announce()">📢</button>
+      </div>
+    </aside>
+  </div>
+  <div class="row">
+    <button id="shareBtn" class="ok" onclick="shareScreen()">Share my screen</button>
+    <button class="ghost" onclick="stopShare()">Stop sharing</button>
+    <label class="chk"><input type="checkbox" id="micOn" checked onchange="toggleMic()"> Microphone</label>
+    <button class="ghost" onclick="exportCSV()">⬇ Attendee list (CSV)</button>
+    <button class="danger" onclick="endHost()">End webinar</button>
+  </div>
+  <div class="lr"><input id="hostLink" readonly onclick="this.select()"><button class="ghost sm" onclick="copyLink(event)">Copy link</button></div>
+  <div class="chips" id="viewersList"></div>
+</div>
+
+<div class="screen" id="viewerScreen">
+  <header>
+    <div class="hg"><span class="dot" id="viewerDot"></span><b>Attendee</b><span id="viewerName">—</span></div>
+    <div class="hg" id="viewerStatus">Connecting…</div>
+  </header>
+  <div class="grid">
+    <div class="vw">
+      <video id="remoteVideo" autoplay playsinline></video>
+      <div class="ph" id="viewerPh"><div class="spin"></div><div>Connecting…</div></div>
+    </div>
+    <aside class="panel">
+      <h3>Message the host</h3>
+      <div class="chat" id="viewerChat"><div class="empty" id="viewerEmpty">Your messages are private. Only the host can read them.</div></div>
+      <div class="comp">
+        <input id="viewerMsg" placeholder="Type a message…" maxlength="500" onkeydown="if(event.key==='Enter'){event.preventDefault();sendViewerMessage()}">
+        <button onclick="sendViewerMessage()">Send</button>
+      </div>
+    </aside>
+  </div>
+  <div class="row">
+    <button class="ghost" onclick="fullscreen()">⛶ Fullscreen</button>
+    <button class="danger" onclick="leaveViewer()">Leave webinar</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+window.Peer||document.write('<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"><\/script>');
+</script>
+<script>
+/* ---- Config: add your own TURN server here for best reliability on mobile/corporate networks ---- */
+const PEER_OPTS={debug:1,config:{iceServers:[
+  {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},
+  {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'}
+]}};
+
+const $=id=>document.getElementById(id);
+const SCREENS=['home','joinScreen','hostScreen','viewerScreen'];
+const show=n=>SCREENS.forEach(s=>$(s).classList.toggle('active',s===n));
+const uid=()=>Math.random().toString(36).slice(2,10);
+const nowTime=()=>new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+function addTo(box,emptyId,el){const e=$(emptyId);if(e)e.remove();$(box).appendChild(el);$(box).scrollTop=$(box).scrollHeight}
+function mk(cls,html){const d=document.createElement('div');d.className=cls;d.innerHTML=html;return d}
+
+/* ---- boot ---- */
+(function(){
+  const code=new URLSearchParams(location.hash.replace(/^#/,'')).get('join');
+  if(code){$('jCode').value=code;show('joinScreen');setTimeout(()=>$('jName').focus(),100)}
+})();
+function goToJoin(){show('joinScreen');setTimeout(()=>$('jName').focus(),100)}
+
+/* =================== HOST =================== */
+let peer=null,hostCode='',outStream=null,rawStreams=[],micTrack=null,audioCtx=null,hostAttempts=0,hostEnded=false;
+const viewers=new Map(),calls=new Map(),registry=new Map();
+
+function startHost(){
+  hostEnded=false;
+  hostCode=(hostAttempts<3&&store.get('wc_code'))||uid().slice(0,8);
+  peer=new Peer('wcast-'+hostCode,PEER_OPTS);
+  peer.on('open',()=>{
+    store.set('wc_code',hostCode);hostAttempts=0;
+    $('hostId').textContent=hostCode;
+    $('hostLink').value=location.href.split('#')[0]+'#join='+hostCode;
+    show('hostScreen');updateViewers();
+  });
+  peer.on('error',err=>{
+    if(err.type==='unavailable-id'){
+      hostAttempts++;try{peer.destroy()}catch(e){}
+      if(hostAttempts>=3)store.del('wc_code');
+      setTimeout(startHost,1500);
+    }else if(err.type==='network'||err.type==='server-error'||err.type==='socket-error'){
+      setTimeout(()=>{try{peer.reconnect()}catch(e){}},2000);
+    }else if(err.type!=='peer-unavailable'){
+      alert('Connection error: '+err.type+'\nRefresh and try again.');
+    }
+  });
+  peer.on('disconnected',()=>{if(!hostEnded)setTimeout(()=>{try{peer.reconnect()}catch(e){}},1500)});
+  peer.on('connection',conn=>{
+    conn.on('data',d=>hostData(conn,d));
+    conn.on('close',()=>{
+      const v=viewers.get(conn.peer);
+      if(v&&v.conn===conn){viewers.delete(conn.peer);const c=calls.get(conn.peer);if(c){try{c.close()}catch(e){}calls.delete(conn.peer)}updateViewers()}
+    });
+    conn.on('error',()=>{});
+  });
+  peer.on('call',call=>{
+    if(!outStream){try{call.close()}catch(e){}return}
+    try{call.answer(outStream)}catch(e){return}
+    calls.set(call.peer,call);
+    call.on('close',()=>{if(calls.get(call.peer)===call)calls.delete(call.peer)});
+    call.on('error',()=>{});
+  });
+}
+
+function hostData(conn,d){
+  if(!d||!d.type)return;
+  if(d.type==='hello'){
+    const name=String(d.name||'Attendee').slice(0,60),mobile=String(d.mobile||'').slice(0,16);
+    const existed=viewers.has(conn.peer);
+    viewers.set(conn.peer,{conn,name,mobile});
+    registry.set(name+'|'+mobile,{name,mobile,joined:new Date().toLocaleString()});
+    updateViewers();
+    try{conn.send({type:'status',live:!!outStream})}catch(e){}
+    if(!existed)addTo('hostChat','hostEmpty',mk('sys',esc(name)+' joined'));
+  }else if(d.type==='chat'){
+    const v=viewers.get(conn.peer);if(!v||!d.text)return;
+    addTo('hostChat','hostEmpty',mk('msg','<div class="who">'+esc(v.name)+'<small>'+esc(v.mobile)+'</small></div><div>'+esc(String(d.text).slice(0,500))+'</div><div class="meta">'+nowTime()+'</div>'));
+  }else if(d.type==='leave'){
+    const v=viewers.get(conn.peer);viewers.delete(conn.peer);
+    if(v)addTo('hostChat','hostEmpty',mk('sys',esc(v.name)+' left'));
+    updateViewers();
+  }
+}
+
+async function shareScreen(){
+  if(!navigator.mediaDevices?.getDisplayMedia){alert('Screen sharing is not supported on this device. Use Chrome, Edge or Firefox on a computer.');return}
+  let disp;
+  try{disp=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:true})}catch(e){return}
+  rawStreams=[disp];micTrack=null;
+  let mic=null;
+  if($('micOn').checked){
+    try{mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});rawStreams.push(mic);micTrack=mic.getAudioTracks()[0]}
+    catch(e){$('micOn').checked=false;alert('Microphone unavailable, sharing without it.')}
+  }
+  const tracks=[...disp.getVideoTracks()];
+  if(disp.getAudioTracks().length||mic){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const dest=audioCtx.createMediaStreamDestination();
+    if(disp.getAudioTracks().length)audioCtx.createMediaStreamSource(new MediaStream(disp.getAudioTracks())).connect(dest);
+    if(mic)audioCtx.createMediaStreamSource(mic).connect(dest);
+    tracks.push(...dest.stream.getAudioTracks());
+  }
+  outStream=new MediaStream(tracks);
+  $('hostPreview').srcObject=outStream;
+  $('hostPh').classList.add('hide');
+  $('shareBtn').disabled=true;$('statusDot').classList.add('live');
+  disp.getVideoTracks()[0].onended=stopShare;
+  broadcast({type:'live-on'});
+}
+function toggleMic(){if(micTrack)micTrack.enabled=$('micOn').checked}
+function stopShare(){
+  rawStreams.forEach(s=>s.getTracks().forEach(t=>t.stop()));rawStreams=[];micTrack=null;
+  if(audioCtx){try{audioCtx.close()}catch(e){}audioCtx=null}
+  const was=!!outStream;outStream=null;
+  $('hostPreview').srcObject=null;$('hostPh').classList.remove('hide');
+  $('shareBtn').disabled=false;$('statusDot').classList.remove('live');
+  calls.forEach(c=>{try{c.close()}catch(e){}});calls.clear();
+  if(was)broadcast({type:'live-off'});
+}
+function broadcast(m){viewers.forEach(v=>{if(v.conn&&v.conn.open){try{v.conn.send(m)}catch(e){}}})}
+function announce(){
+  const t=$('annMsg').value.trim();if(!t)return;
+  broadcast({type:'announce',text:t});
+  addTo('hostChat','hostEmpty',mk('msg ann','<div class="who">📢 You announced</div><div>'+esc(t)+'</div>'));
+  $('annMsg').value='';
+}
+function updateViewers(){
+  const n=viewers.size;
+  $('count').textContent=n===1?'1 attendee':n+' attendees';
+  const l=$('viewersList');l.innerHTML='';
+  if(!n){l.innerHTML='<span class="chip mu">No attendees yet. Share the link above.</span>';return}
+  viewers.forEach(v=>{const c=document.createElement('span');c.className='chip';c.textContent='👤 '+v.name;l.appendChild(c)});
+}
+function exportCSV(){
+  if(!registry.size){alert('No attendees have registered yet.');return}
+  const q=s=>'"'+String(s).replace(/"/g,'""').replace(/^([=+\-@])/,"'$1")+'"';
+  const rows=[['Name','Mobile','Joined'],...[...registry.values()].map(r=>[r.name,r.mobile,r.joined])];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(q).join(',')).join('\n')],{type:'text/csv'}));
+  a.download='attendees-'+hostCode+'.csv';document.body.appendChild(a);a.click();a.remove();
+}
+function copyLink(ev){
+  const inp=$('hostLink'),b=ev.target;inp.select();
+  const done=()=>{b.textContent='✓ Copied';setTimeout(()=>b.textContent='Copy link',1500)};
+  if(navigator.clipboard)navigator.clipboard.writeText(inp.value).then(done).catch(()=>{document.execCommand('copy');done()});
+  else{document.execCommand('copy');done()}
+}
+function endHost(){
+  if(!confirm('End the webinar for all attendees?'))return;
+  hostEnded=true;broadcast({type:'host-ended'});stopShare();
+  viewers.forEach(v=>{try{v.conn.close()}catch(e){}});viewers.clear();
+  if(peer){try{peer.destroy()}catch(e){}peer=null}
+  store.del('wc_code');location.hash='';updateViewers();show('home');
+}
+
+/* =================== VIEWER =================== */
+let vPeer=null,vConn=null,vCall=null,vName='',vMobile='',vCode='',leaving=false,retryT=null;
+const setPh=h=>{$('viewerPh').classList.remove('hide');$('viewerPh').innerHTML=h};
+const setStatus=t=>$('viewerStatus').textContent=t;
+
+function submitJoin(){
+  const name=$('jName').value.trim(),mobile=$('jMobile').value.trim();
+  let code=$('jCode').value.trim().toLowerCase();
+  const m=code.match(/join=([a-z0-9]+)/);if(m)code=m[1];
+  const err=$('joinErr');
+  if(name.length<2){err.textContent='Please enter your full name.';return}
+  if(!/^\+?[0-9\s\-]{6,16}$/.test(mobile)||mobile.replace(/\D/g,'').length<6){err.textContent='Please enter a valid mobile number.';return}
+  if(!/^[a-z0-9]{4,12}$/.test(code)){err.textContent='Please enter a valid meeting code.';return}
+  err.textContent='';vName=name;vMobile=mobile;vCode=code;
+  leaving=false;$('viewerName').textContent=name;$('viewerChat').querySelectorAll('.msg,.sys').forEach(e=>e.remove());
+  setStatus('Connecting…');setPh('<div class="spin"></div><div>Connecting…</div>');
+  show('viewerScreen');
+  vPeer=new Peer(null,PEER_OPTS);
+  vPeer.on('open',connectToHost);
+  vPeer.on('error',e=>{
+    if(leaving)return;
+    if(e.type==='peer-unavailable'){
+      setStatus('Waiting for host to open the room');
+      setPh('<div class="spin"></div><div>The host hasn\'t started yet.<br>You\'ll be connected automatically.</div>');
+      scheduleRetry(4000);
+    }else if(['network','server-error','socket-error'].includes(e.type)){
+      setStatus('Reconnecting…');setTimeout(()=>{try{vPeer.reconnect()}catch(x){}},2000);
+    }else setStatus('Connection error');
+  });
+  vPeer.on('disconnected',()=>{if(!leaving)setTimeout(()=>{try{vPeer.reconnect()}catch(e){}},1500)});
+}
+function scheduleRetry(ms){clearTimeout(retryT);retryT=setTimeout(()=>{if(!leaving&&vPeer&&vPeer.open)connectToHost()},ms)}
+function connectToHost(){
+  if(leaving)return;
+  if(vConn){try{vConn.close()}catch(e){}}
+  const c=vPeer.connect('wcast-'+vCode,{reliable:true});vConn=c;
+  c.on('open',()=>{setStatus('Registered. Waiting for host');c.send({type:'hello',name:vName,mobile:vMobile})});
+  c.on('data',viewerData);
+  c.on('close',()=>{
+    if(leaving||vConn!==c)return;
+    setStatus('Reconnecting…');setPh('<div class="spin"></div><div>Connection lost. Reconnecting…</div>');
+    $('viewerDot').classList.remove('live');scheduleRetry(3000);
+  });
+  c.on('error',()=>{});
+}
+function viewerData(d){
+  if(!d||!d.type)return;
+  if(d.type==='status'||d.type==='live-on'){
+    if(d.type==='status'&&!d.live){setStatus('Waiting for host');setPh('<div class="spin"></div><div>Waiting for host to start sharing…</div>');return}
+    setStatus('Host is live. Connecting stream…');requestStream();
+  }else if(d.type==='live-off'){
+    setStatus('Host paused');closeCall();setPh('<div class="big">⏸️</div><div>The host paused the broadcast.<br>It will resume automatically.</div>');
+  }else if(d.type==='host-ended'){
+    leaving=true;clearTimeout(retryT);setStatus('Webinar ended');closeCall();
+    setPh('<div class="big">🛑</div><div>The host ended this webinar.</div>');
+  }else if(d.type==='announce'){
+    addTo('viewerChat','viewerEmpty',mk('msg ann','<div class="who">📢 Host</div><div>'+esc(String(d.text).slice(0,300))+'</div><div class="meta">'+nowTime()+'</div>'));
+  }
+}
+function closeCall(){
+  if(vCall){try{vCall.close()}catch(e){}vCall=null}
+  $('remoteVideo').srcObject=null;$('viewerDot').classList.remove('live');
+}
+function requestStream(){
+  if(!vPeer)return;
+  if(vCall){try{vCall.close()}catch(e){}}
+  const cv=document.createElement('canvas');cv.width=cv.height=2;
+  cv.getContext('2d').fillRect(0,0,2,2);
+  try{vCall=vPeer.call('wcast-'+vCode,cv.captureStream(1))}catch(e){setStatus('Could not reach host');return}
+  if(!vCall){setStatus('Could not reach host');return}
+  const call=vCall;
+  call.on('stream',s=>{
+    const v=$('remoteVideo');v.srcObject=s;
+    $('viewerPh').classList.add('hide');setStatus('🔴 LIVE');$('viewerDot').classList.add('live');
+    v.play().catch(()=>{v.muted=true;v.play().then(()=>{setStatus('🔴 LIVE (muted)');$('viewerPh').classList.remove('hide');$('viewerPh').innerHTML='<button class="ok" onclick="unmute()">🔊 Tap to unmute</button>'}).catch(()=>setPh('<button class="ok" onclick="unmute()">▶ Tap to play</button>'))});
+  });
+  call.on('close',()=>{if(vCall===call)$('viewerDot').classList.remove('live')});
+  call.on('error',()=>{});
+}
+function unmute(){const v=$('remoteVideo');v.muted=false;v.play().then(()=>{$('viewerPh').classList.add('hide');setStatus('🔴 LIVE')}).catch(()=>{})}
+function fullscreen(){const v=$('remoteVideo');(v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||(()=>{})).call(v)}
+function sendViewerMessage(){
+  const inp=$('viewerMsg'),text=inp.value.trim();if(!text)return;
+  if(!vConn||!vConn.open){alert('Not connected to the host yet.');return}
+  try{vConn.send({type:'chat',text})}catch(e){alert('Could not send message.');return}
+  addTo('viewerChat','viewerEmpty',mk('msg mine','<div class="who">You → host</div><div>'+esc(text)+'</div><div class="meta">'+nowTime()+' · sent</div>'));
+  inp.value='';
+}
+function leaveViewer(){
+  leaving=true;clearTimeout(retryT);
+  if(vConn&&vConn.open){try{vConn.send({type:'leave'})}catch(e){}}
+  closeCall();
+  if(vConn){try{vConn.close()}catch(e){}}
+  if(vPeer){try{vPeer.destroy()}catch(e){}}
+  vConn=vPeer=null;location.hash='';show('home');
+}
+window.addEventListener('beforeunload',()=>{
+  if(peer&&!hostEnded)broadcast({type:'live-off'});
+  if(vConn&&vConn.open){try{vConn.send({type:'leave'})}catch(e){}}
+});
+</script>
+</body>
+</html>
