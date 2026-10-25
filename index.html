@@ -81,7 +81,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ba
     <button onclick="startHost()">🎥 Start a webinar (Host)</button>
     <button class="ghost" onclick="goToJoin()">👥 Join a webinar</button>
   </div>
-  <p class="homeNote">Runs peer-to-peer over WebRTC. Best for small to medium audiences (up to about 15–25 attendees, since your device sends the stream to each one). Host this file on any HTTPS site so the link works on every device.</p>
+  <p class="homeNote">Runs peer-to-peer over WebRTC. Best for small to medium audiences (up to about 15–25 attendees). Screen sharing works on laptops and on Android browsers that support it; otherwise the host can broadcast from the phone camera. Host this file on any HTTPS site so the link works on every device.</p>
 </div>
 
 <div class="screen" id="joinScreen">
@@ -119,6 +119,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ba
   <div class="row">
     <button id="shareBtn" class="ok" onclick="toggleScreen()">Share my screen</button>
     <button id="camBtn" class="ghost" onclick="toggleCamera()">🎥 Start camera</button>
+    <button id="flipBtn" class="ghost" style="display:none" onclick="flipCamera()">🔄 Flip camera</button>
     <label class="chk"><input type="checkbox" id="micOn" onchange="toggleMic()"> 🎤 Microphone</label>
     <button class="ghost" onclick="exportCSV()">⬇ Attendee list (CSV)</button>
     <button class="danger" onclick="endHost()">End webinar</button>
@@ -187,8 +188,21 @@ let peer=null,hostCode='',hostEnded=false,hostAttempts=0;
 let screenStream=null,camStream=null,micStream=null;
 let outStream=null,live=false,audioCtx=null,audioDest=null;
 const audioNodes=new Map();
-let compRaf=0,compStream=null,compKey='',compVids={};
+let compTimer=0,compStream=null,compKey='',compVids={};
+let camFacing='user',wakeLock=null;
 const viewers=new Map(),calls=new Map(),registry=new Map();
+
+const canShareScreen=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
+
+/* keep the host's screen on while live (phones) */
+async function keepAwake(on){
+  try{
+    if(on&&'wakeLock' in navigator){
+      if(!wakeLock){wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null})}
+    }else if(wakeLock){await wakeLock.release();wakeLock=null}
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(live&&document.visibilityState==='visible')keepAwake(true)});
 
 function startHost(){
   hostEnded=false;
@@ -199,6 +213,11 @@ function startHost(){
     $('hostId').textContent=hostCode;
     $('hostLink').value=location.href.split('#')[0]+'#join='+hostCode;
     show('hostScreen');updateViewers();
+    if(!canShareScreen()){
+      $('shareBtn').textContent='Share screen (not supported here)';
+      $('shareBtn').className='ghost';
+      $('hostPh').innerHTML='<div class="big">📱</div><div>This device can\'t share its screen.<br>Tap <b>Start camera</b> to go live, or host from a laptop to share a screen.</div>';
+    }
   });
   peer.on('error',err=>{
     if(err.type==='unavailable-id'){
@@ -276,9 +295,11 @@ function disconnectAudioTracks(stream){
   });
 }
 
-/* ---------- picture-in-picture compositing: screen + camera ---------- */
+/* ---------- picture-in-picture compositing: screen + camera ----------
+   Uses setInterval (not requestAnimationFrame) so it keeps running
+   when the host switches apps on a phone. */
 function stopCompose(){
-  if(compRaf){cancelAnimationFrame(compRaf);compRaf=0}
+  if(compTimer){clearInterval(compTimer);compTimer=0}
   if(compStream){compStream.getTracks().forEach(t=>{try{t.stop()}catch(e){}});compStream=null}
   if(compVids.s){try{compVids.s.srcObject=null}catch(e){}}
   if(compVids.c){try{compVids.c.srcObject=null}catch(e){}}
@@ -321,9 +342,9 @@ function composeVideo(scrTrack,camTrack){
       ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=3;
       ctx.strokeRect(px,py,pw,ph);
     }
-    compRaf=requestAnimationFrame(draw);
   };
   draw();
+  compTimer=setInterval(draw,33);
   const cap=c.captureStream||c.mozCaptureStream;
   if(!cap)return scrTrack;   /* fallback: send the screen only */
   compStream=cap.call(c,30);
@@ -357,17 +378,22 @@ function applySources(){
   else{p.srcObject=null}
   $('hostPh').classList.toggle('hide',!!vTrack);
   if(!vTrack){
-    $('hostPh').innerHTML='<div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> or <b>Start camera</b> to go live.</div>';
+    $('hostPh').innerHTML=canShareScreen()
+      ?'<div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> or <b>Start camera</b> to go live.</div>'
+      :'<div class="big">📱</div><div>This device can\'t share its screen.<br>Tap <b>Start camera</b> to go live, or host from a laptop to share a screen.</div>';
   }
 
   /* buttons */
   const sb=$('shareBtn');
-  sb.textContent=screenStream?'⏹ Stop sharing':'Share my screen';
-  sb.className=screenStream?'danger':'ok';
+  if(screenStream){sb.textContent='⏹ Stop sharing';sb.className='danger'}
+  else if(canShareScreen()){sb.textContent='Share my screen';sb.className='ok'}
+  else{sb.textContent='Share screen (not supported here)';sb.className='ghost'}
   const cb=$('camBtn');
   cb.textContent=camStream?'⏹ Stop camera':'🎥 Start camera';
   cb.className=camStream?'danger':'ghost';
+  $('flipBtn').style.display=camStream?'':'none';
   $('statusDot').classList.toggle('live',live);
+  keepAwake(live);
 
   /* force attendees to re-negotiate with the new stream */
   calls.forEach(c=>{try{c.close()}catch(e){}});
@@ -375,18 +401,38 @@ function applySources(){
   broadcast({type:live?'live-on':'live-off'});
 }
 
-/* ---------- source toggles ---------- */
+/* ---------- screen sharing (laptop + Android browsers that support it) ---------- */
+async function grabScreen(){
+  /* Android browsers often reject audio or frameRate constraints, so retry with simpler options */
+  const attempts=[
+    {video:{frameRate:{ideal:30}},audio:true},
+    {video:true,audio:true},
+    {video:true,audio:false}
+  ];
+  let last;
+  for(const c of attempts){
+    try{return await navigator.mediaDevices.getDisplayMedia(c)}
+    catch(e){
+      last=e;
+      if(e&&(e.name==='NotAllowedError'||e.name==='AbortError'))throw e; /* user cancelled */
+    }
+  }
+  throw last;
+}
 async function toggleScreen(){
   if(screenStream){stopScreen();return}
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){
-    alert('Screen sharing is not supported on this device. Use Chrome, Edge or Firefox on a computer.');
+  if(!canShareScreen()){
+    if(confirm('Screen sharing is not supported by this browser/device (most Android browsers do not support it).\n\nGo live with the camera instead?'))toggleCamera();
     return;
   }
   ensureAudioGraph();
   let s;
-  try{
-    s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:true});
-  }catch(e){return}
+  try{s=await grabScreen()}
+  catch(e){
+    if(e&&(e.name==='NotAllowedError'||e.name==='AbortError'))return;
+    if(confirm('Could not start screen sharing on this device.\n\nGo live with the camera instead?'))toggleCamera();
+    return;
+  }
   screenStream=s;
   const vt=s.getVideoTracks()[0];
   if(vt)vt.addEventListener('ended',()=>{if(screenStream===s)stopScreen()});
@@ -401,6 +447,17 @@ function stopScreen(){
   applySources();
 }
 
+/* ---------- camera (front/rear on phones) ---------- */
+async function getCam(){
+  const tries=[
+    {video:{facingMode:{ideal:camFacing},width:{ideal:1280},height:{ideal:720}},audio:false},
+    {video:{facingMode:camFacing},audio:false},
+    {video:true,audio:false}
+  ];
+  let last;
+  for(const c of tries){try{return await navigator.mediaDevices.getUserMedia(c)}catch(e){last=e}}
+  throw last;
+}
 async function toggleCamera(){
   if(camStream){stopCamera();return}
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
@@ -409,15 +466,28 @@ async function toggleCamera(){
   }
   ensureAudioGraph();
   let c;
-  try{
-    c=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
-  }catch(e){
+  try{c=await getCam()}catch(e){
     alert('Camera unavailable or permission denied.');
     return;
   }
   camStream=c;
   const vt=c.getVideoTracks()[0];
   if(vt)vt.addEventListener('ended',()=>{if(camStream===c)stopCamera()});
+  applySources();
+}
+async function flipCamera(){
+  if(!camStream)return;
+  const old=camStream;
+  camFacing=camFacing==='user'?'environment':'user';
+  /* release first: many phones allow only one active camera */
+  old.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
+  camStream=null;
+  try{
+    const c=await getCam();
+    camStream=c;
+    const vt=c.getVideoTracks()[0];
+    if(vt)vt.addEventListener('ended',()=>{if(camStream===c)stopCamera()});
+  }catch(e){alert('Could not switch camera.')}
   applySources();
 }
 function stopCamera(){
@@ -491,7 +561,7 @@ function endHost(){
   screenStream=camStream=micStream=null;
   stopCompose();
   if(audioCtx){try{audioCtx.close()}catch(e){}audioCtx=null;audioDest=null;audioNodes.clear()}
-  outStream=null;live=false;
+  outStream=null;live=false;keepAwake(false);
   calls.forEach(c=>{try{c.close()}catch(e){}});calls.clear();
   viewers.forEach(v=>{try{v.conn.close()}catch(e){}});viewers.clear();
   if(peer){try{peer.destroy()}catch(e){}peer=null}
@@ -501,6 +571,7 @@ function endHost(){
   $('statusDot').classList.remove('live');
   $('shareBtn').textContent='Share my screen';$('shareBtn').className='ok';
   $('camBtn').textContent='🎥 Start camera';$('camBtn').className='ghost';
+  $('flipBtn').style.display='none';
   $('micOn').checked=false;
   $('hostChat').innerHTML='<div class="empty" id="hostEmpty">Attendee messages appear here.<br>Only you can see them.</div>';
   updateViewers();show('home');
