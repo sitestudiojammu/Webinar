@@ -76,7 +76,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ba
 
 <div class="screen active" id="home">
   <h1>Webinar<span>Cast</span></h1>
-  <p class="tag">Broadcast your screen and voice to a live audience. Attendees register with their name and mobile number, watch live, and message you privately.</p>
+  <p class="tag">Broadcast your screen, camera and voice to a live audience. Attendees register with their name and mobile number, watch live, and message you privately.</p>
   <div class="homeBtns">
     <button onclick="startHost()">🎥 Start a webinar (Host)</button>
     <button class="ghost" onclick="goToJoin()">👥 Join a webinar</button>
@@ -105,7 +105,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ba
   <div class="grid">
     <div class="vw">
       <video id="hostPreview" autoplay muted playsinline></video>
-      <div class="ph" id="hostPh"><div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> to go live.</div></div>
+      <div class="ph" id="hostPh"><div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> or <b>Start camera</b> to go live.</div></div>
     </div>
     <aside class="panel">
       <h3>Messages from attendees</h3>
@@ -117,9 +117,9 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ba
     </aside>
   </div>
   <div class="row">
-    <button id="shareBtn" class="ok" onclick="shareScreen()">Share my screen</button>
-    <button class="ghost" onclick="stopShare()">Stop sharing</button>
-    <label class="chk"><input type="checkbox" id="micOn" checked onchange="toggleMic()"> Microphone</label>
+    <button id="shareBtn" class="ok" onclick="toggleScreen()">Share my screen</button>
+    <button id="camBtn" class="ghost" onclick="toggleCamera()">🎥 Start camera</button>
+    <label class="chk"><input type="checkbox" id="micOn" onchange="toggleMic()"> 🎤 Microphone</label>
     <button class="ghost" onclick="exportCSV()">⬇ Attendee list (CSV)</button>
     <button class="danger" onclick="endHost()">End webinar</button>
   </div>
@@ -183,7 +183,11 @@ function mk(cls,html){const d=document.createElement('div');d.className=cls;d.in
 function goToJoin(){show('joinScreen');setTimeout(()=>$('jName').focus(),100)}
 
 /* =================== HOST =================== */
-let peer=null,hostCode='',outStream=null,rawStreams=[],micTrack=null,audioCtx=null,hostAttempts=0,hostEnded=false;
+let peer=null,hostCode='',hostEnded=false,hostAttempts=0;
+let screenStream=null,camStream=null,micStream=null;
+let outStream=null,live=false,audioCtx=null,audioDest=null;
+const audioNodes=new Map();
+let compRaf=0,compStream=null,compKey='',compVids={};
 const viewers=new Map(),calls=new Map(),registry=new Map();
 
 function startHost(){
@@ -245,41 +249,213 @@ function hostData(conn,d){
   }
 }
 
-async function shareScreen(){
-  if(!navigator.mediaDevices?.getDisplayMedia){alert('Screen sharing is not supported on this device. Use Chrome, Edge or Firefox on a computer.');return}
-  let disp;
-  try{disp=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:true})}catch(e){return}
-  rawStreams=[disp];micTrack=null;
-  let mic=null;
-  if($('micOn').checked){
-    try{mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});rawStreams.push(mic);micTrack=mic.getAudioTracks()[0]}
-    catch(e){$('micOn').checked=false;alert('Microphone unavailable, sharing without it.')}
+/* ---------- audio graph (mic + tab/system audio are mixed into one track) ---------- */
+function ensureAudioGraph(){
+  if(!audioCtx){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return false;
+    try{audioCtx=new AC()}catch(e){return false}
+    audioDest=audioCtx.createMediaStreamDestination();
   }
-  const tracks=[...disp.getVideoTracks()];
-  if(disp.getAudioTracks().length||mic){
-    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    const dest=audioCtx.createMediaStreamDestination();
-    if(disp.getAudioTracks().length)audioCtx.createMediaStreamSource(new MediaStream(disp.getAudioTracks())).connect(dest);
-    if(mic)audioCtx.createMediaStreamSource(mic).connect(dest);
-    tracks.push(...dest.stream.getAudioTracks());
+  if(audioCtx.state==='suspended'){audioCtx.resume().catch(()=>{})}
+  return true;
+}
+function connectAudioTrack(track){
+  if(!audioCtx||!audioDest||!track||audioNodes.has(track))return;
+  try{
+    const src=audioCtx.createMediaStreamSource(new MediaStream([track]));
+    src.connect(audioDest);
+    audioNodes.set(track,src);
+  }catch(e){}
+}
+function disconnectAudioTracks(stream){
+  if(!stream)return;
+  stream.getAudioTracks().forEach(t=>{
+    const n=audioNodes.get(t);
+    if(n){try{n.disconnect()}catch(e){}audioNodes.delete(t)}
+  });
+}
+
+/* ---------- picture-in-picture compositing: screen + camera ---------- */
+function stopCompose(){
+  if(compRaf){cancelAnimationFrame(compRaf);compRaf=0}
+  if(compStream){compStream.getTracks().forEach(t=>{try{t.stop()}catch(e){}});compStream=null}
+  if(compVids.s){try{compVids.s.srcObject=null}catch(e){}}
+  if(compVids.c){try{compVids.c.srcObject=null}catch(e){}}
+  compVids={};compKey='';
+}
+function composeVideo(scrTrack,camTrack){
+  const key=scrTrack.id+'|'+camTrack.id;
+  if(compStream&&compKey===key){
+    const t=compStream.getVideoTracks()[0];
+    if(t&&t.readyState==='live')return t;
   }
-  outStream=new MediaStream(tracks);
-  $('hostPreview').srcObject=outStream;
-  $('hostPh').classList.add('hide');
-  $('shareBtn').disabled=true;$('statusDot').classList.add('live');
-  disp.getVideoTracks()[0].onended=stopShare;
-  broadcast({type:'live-on'});
+  stopCompose();
+  compKey=key;
+  const st=(scrTrack.getSettings&&scrTrack.getSettings())||{};
+  const W=Math.min(Math.max(st.width||1280,640),1920);
+  const H=Math.min(Math.max(st.height||720,360),1080);
+  const c=document.createElement('canvas');
+  c.width=W;c.height=H;
+  const ctx=c.getContext('2d');
+  const mkVid=tr=>{
+    const v=document.createElement('video');
+    v.muted=true;v.autoplay=true;v.playsInline=true;
+    v.srcObject=new MediaStream([tr]);
+    v.play().catch(()=>{});
+    return v;
+  };
+  const sv=mkVid(scrTrack),cv=mkVid(camTrack);
+  compVids={s:sv,c:cv};
+  const draw=()=>{
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    if(sv.videoWidth)ctx.drawImage(sv,0,0,W,H);
+    if(cv.videoWidth){
+      const pw=Math.round(W*0.24);
+      const ph=Math.round(pw*((cv.videoHeight||9)/(cv.videoWidth||16)));
+      const px=W-pw-18,py=H-ph-18;
+      ctx.save();
+      ctx.shadowColor='rgba(0,0,0,.6)';ctx.shadowBlur=18;
+      ctx.drawImage(cv,px,py,pw,ph);
+      ctx.restore();
+      ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=3;
+      ctx.strokeRect(px,py,pw,ph);
+    }
+    compRaf=requestAnimationFrame(draw);
+  };
+  draw();
+  const cap=c.captureStream||c.mozCaptureStream;
+  if(!cap)return scrTrack;   /* fallback: send the screen only */
+  compStream=cap.call(c,30);
+  return compStream.getVideoTracks()[0]||scrTrack;
 }
-function toggleMic(){if(micTrack)micTrack.enabled=$('micOn').checked}
-function stopShare(){
-  rawStreams.forEach(s=>s.getTracks().forEach(t=>t.stop()));rawStreams=[];micTrack=null;
-  if(audioCtx){try{audioCtx.close()}catch(e){}audioCtx=null}
-  const was=!!outStream;outStream=null;
-  $('hostPreview').srcObject=null;$('hostPh').classList.remove('hide');
-  $('shareBtn').disabled=false;$('statusDot').classList.remove('live');
-  calls.forEach(c=>{try{c.close()}catch(e){}});calls.clear();
-  if(was)broadcast({type:'live-off'});
+
+/* ---------- build the outgoing stream from whichever sources are active ---------- */
+function applySources(){
+  const scrV=screenStream?screenStream.getVideoTracks().find(t=>t.readyState==='live'):null;
+  const camV=camStream?camStream.getVideoTracks().find(t=>t.readyState==='live'):null;
+
+  let vTrack=null;
+  if(scrV&&camV)vTrack=composeVideo(scrV,camV);
+  else if(scrV)vTrack=scrV;
+  else if(camV)vTrack=camV;
+  if(!(scrV&&camV))stopCompose();
+
+  if(!vTrack){
+    outStream=null;
+  }else{
+    if(!audioDest)ensureAudioGraph();
+    const tracks=[vTrack];
+    if(audioDest)tracks.push(...audioDest.stream.getAudioTracks());
+    outStream=new MediaStream(tracks);
+  }
+  live=!!outStream;
+
+  /* preview + placeholder */
+  const p=$('hostPreview');
+  if(outStream){p.srcObject=outStream;p.muted=true;p.play().catch(()=>{})}
+  else{p.srcObject=null}
+  $('hostPh').classList.toggle('hide',!!vTrack);
+  if(!vTrack){
+    $('hostPh').innerHTML='<div class="big">🖥️</div><div>You are not sharing yet.<br>Click <b>Share my screen</b> or <b>Start camera</b> to go live.</div>';
+  }
+
+  /* buttons */
+  const sb=$('shareBtn');
+  sb.textContent=screenStream?'⏹ Stop sharing':'Share my screen';
+  sb.className=screenStream?'danger':'ok';
+  const cb=$('camBtn');
+  cb.textContent=camStream?'⏹ Stop camera':'🎥 Start camera';
+  cb.className=camStream?'danger':'ghost';
+  $('statusDot').classList.toggle('live',live);
+
+  /* force attendees to re-negotiate with the new stream */
+  calls.forEach(c=>{try{c.close()}catch(e){}});
+  calls.clear();
+  broadcast({type:live?'live-on':'live-off'});
 }
+
+/* ---------- source toggles ---------- */
+async function toggleScreen(){
+  if(screenStream){stopScreen();return}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){
+    alert('Screen sharing is not supported on this device. Use Chrome, Edge or Firefox on a computer.');
+    return;
+  }
+  ensureAudioGraph();
+  let s;
+  try{
+    s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:true});
+  }catch(e){return}
+  screenStream=s;
+  const vt=s.getVideoTracks()[0];
+  if(vt)vt.addEventListener('ended',()=>{if(screenStream===s)stopScreen()});
+  s.getAudioTracks().forEach(connectAudioTrack);
+  applySources();
+}
+function stopScreen(){
+  if(!screenStream)return;
+  const s=screenStream;screenStream=null;
+  disconnectAudioTracks(s);
+  s.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
+  applySources();
+}
+
+async function toggleCamera(){
+  if(camStream){stopCamera();return}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    alert('Camera is not supported on this device/browser.');
+    return;
+  }
+  ensureAudioGraph();
+  let c;
+  try{
+    c=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+  }catch(e){
+    alert('Camera unavailable or permission denied.');
+    return;
+  }
+  camStream=c;
+  const vt=c.getVideoTracks()[0];
+  if(vt)vt.addEventListener('ended',()=>{if(camStream===c)stopCamera()});
+  applySources();
+}
+function stopCamera(){
+  if(!camStream)return;
+  const c=camStream;camStream=null;
+  c.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
+  applySources();
+}
+
+/* mic is mixed into the existing audio track — no renegotiation needed */
+async function toggleMic(){
+  const want=$('micOn').checked;
+  if(!want){
+    if(micStream)micStream.getAudioTracks().forEach(t=>{t.enabled=false});
+    return;
+  }
+  if(micStream&&micStream.getAudioTracks().some(t=>t.readyState==='live')){
+    micStream.getAudioTracks().forEach(t=>{t.enabled=true});
+    return;
+  }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    $('micOn').checked=false;
+    alert('Microphone is not supported on this device/browser.');
+    return;
+  }
+  ensureAudioGraph();
+  let m;
+  try{
+    m=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+  }catch(e){
+    $('micOn').checked=false;
+    alert('Microphone unavailable or permission denied.');
+    return;
+  }
+  micStream=m;
+  m.getAudioTracks().forEach(t=>{t.enabled=true;connectAudioTrack(t)});
+}
+
 function broadcast(m){viewers.forEach(v=>{if(v.conn&&v.conn.open){try{v.conn.send(m)}catch(e){}}})}
 function announce(){
   const t=$('annMsg').value.trim();if(!t)return;
@@ -310,10 +486,24 @@ function copyLink(ev){
 }
 function endHost(){
   if(!confirm('End the webinar for all attendees?'))return;
-  hostEnded=true;broadcast({type:'host-ended'});stopShare();
+  hostEnded=true;broadcast({type:'host-ended'});
+  [screenStream,camStream,micStream].forEach(s=>{if(s)s.getTracks().forEach(t=>{try{t.stop()}catch(e){}})});
+  screenStream=camStream=micStream=null;
+  stopCompose();
+  if(audioCtx){try{audioCtx.close()}catch(e){}audioCtx=null;audioDest=null;audioNodes.clear()}
+  outStream=null;live=false;
+  calls.forEach(c=>{try{c.close()}catch(e){}});calls.clear();
   viewers.forEach(v=>{try{v.conn.close()}catch(e){}});viewers.clear();
   if(peer){try{peer.destroy()}catch(e){}peer=null}
-  store.del('wc_code');location.hash='';updateViewers();show('home');
+  store.del('wc_code');location.hash='';
+  $('hostPreview').srcObject=null;
+  $('hostPh').classList.remove('hide');
+  $('statusDot').classList.remove('live');
+  $('shareBtn').textContent='Share my screen';$('shareBtn').className='ok';
+  $('camBtn').textContent='🎥 Start camera';$('camBtn').className='ghost';
+  $('micOn').checked=false;
+  $('hostChat').innerHTML='<div class="empty" id="hostEmpty">Attendee messages appear here.<br>Only you can see them.</div>';
+  updateViewers();show('home');
 }
 
 /* =================== VIEWER =================== */
@@ -389,6 +579,12 @@ function requestStream(){
   const call=vCall;
   call.on('stream',s=>{
     const v=$('remoteVideo');v.srcObject=s;
+    const hasVideo=s.getVideoTracks().length>0;
+    if(!hasVideo){
+      setStatus('🔴 LIVE (audio)');$('viewerDot').classList.add('live');
+      setPh('<div class="big">🎙️</div><div>Host is broadcasting audio only.</div>');
+      return;
+    }
     $('viewerPh').classList.add('hide');setStatus('🔴 LIVE');$('viewerDot').classList.add('live');
     v.play().catch(()=>{v.muted=true;v.play().then(()=>{setStatus('🔴 LIVE (muted)');$('viewerPh').classList.remove('hide');$('viewerPh').innerHTML='<button class="ok" onclick="unmute()">🔊 Tap to unmute</button>'}).catch(()=>setPh('<button class="ok" onclick="unmute()">▶ Tap to play</button>'))});
   });
